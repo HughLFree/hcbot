@@ -1,0 +1,17 @@
+{
+  "defaults": {
+    "channel": "bot",
+    "botName": "bot",
+    "provider": "deepseek",
+    "personality": "You are bot, a concise and pragmatic chat companion.",
+    "replyMode": "mention"
+  },
+  "providers": [
+    {
+      "id": "deepseek",
+      "label": "DeepSeek",
+      "subtitle": "V3 Chat",
+      "enabled": true
+    }
+  ]
+}
