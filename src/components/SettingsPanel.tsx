@@ -9,6 +9,8 @@ interface SettingsPanelProps {
   onConfigChange: (newConfig: BotConfig) => void;
   onConnect: () => void;
   onDisconnect: () => void;
+  onConsolidateMemories?: () => void;
+  isConsolidatingMemories?: boolean;
 }
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({
@@ -18,6 +20,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onConfigChange,
   onConnect,
   onDisconnect,
+  onConsolidateMemories,
+  isConsolidatingMemories = false,
 }) => {
   const handleChange = (field: keyof BotConfig, value: any) => {
     onConfigChange({ ...config, [field]: value });
@@ -142,6 +146,21 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
                  All Messages
                </button>
             </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm text-gray-400 block">Memory Maintenance</label>
+            <button
+              onClick={onConsolidateMemories}
+              disabled={!onConsolidateMemories || isConsolidatingMemories}
+              className={`w-full px-3 py-2 rounded text-sm border transition-all ${
+                !onConsolidateMemories || isConsolidatingMemories
+                  ? 'bg-gray-800 border-gray-700 text-gray-500 cursor-not-allowed'
+                  : 'bg-emerald-900/30 border-emerald-500 text-emerald-400 hover:bg-emerald-800/30'
+              }`}
+            >
+              {isConsolidatingMemories ? 'Consolidating Memories...' : 'Consolidate User Memories'}
+            </button>
           </div>
         </section>
 

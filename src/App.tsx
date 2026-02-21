@@ -26,6 +26,7 @@ import { useHackChatSocket } from './hooks/useHackChatSocket';
 const App: React.FC = () => {
   const [providers, setProviders] = useState<ModelProviderOption[]>(FALLBACK_BOOTSTRAP.providers);
   const [config, setConfig] = useState<BotConfig>(toBotConfig(FALLBACK_BOOTSTRAP.defaults));
+  const [isConsolidatingMemories, setIsConsolidatingMemories] = useState(false);
   const configRef = useRef<BotConfig>(toBotConfig(FALLBACK_BOOTSTRAP.defaults));
   const providersRef = useRef<ModelProviderOption[]>(FALLBACK_BOOTSTRAP.providers);
   configRef.current = config;
@@ -108,8 +109,28 @@ const App: React.FC = () => {
   const getConfig = useMemo(() => () => configRef.current, []);
   const getProviders = useMemo(() => () => providersRef.current, []);
 
-  const { handleIncomingMessage, fetchProfileContextByTrip } = useProfileSync({ getChannel });
-  const { generateReply } = useBotReply({ getConfig, getProviders, fetchProfileContextByTrip });
+  const { handleIncomingMessage } = useProfileSync({ getChannel });
+  const { generateReply } = useBotReply({ getConfig, getProviders });
+
+  const handleConsolidateMemories = async () => {
+    if (isConsolidatingMemories) return;
+    setIsConsolidatingMemories(true);
+    try {
+      const response = await fetch('/api/memories/consolidate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const result = await response.json();
+      if (!response.ok || !result?.ok) {
+        throw new Error(result?.error || 'failed to consolidate memories');
+      }
+      console.log('Memory consolidation result:', result);
+    } catch (error) {
+      console.error('Failed to consolidate memories:', error);
+    } finally {
+      setIsConsolidatingMemories(false);
+    }
+  };
 
   const { status, messages, onlineUsers, connect, disconnect } = useHackChatSocket({
     config,
@@ -126,6 +147,8 @@ const App: React.FC = () => {
         onConfigChange={setConfig}
         onConnect={connect}
         onDisconnect={disconnect}
+        onConsolidateMemories={handleConsolidateMemories}
+        isConsolidatingMemories={isConsolidatingMemories}
       />
 
       <div className="flex-1 flex flex-col h-full min-w-0 min-h-0">

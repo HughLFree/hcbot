@@ -22,6 +22,19 @@ export interface UserProfile {
   display_name?: string;
 }
 
+export interface UserMemoryDigestThread {
+  topic: string;
+  status: string;
+  note: string;
+}
+
+export interface UserMemoryDigest {
+  highlights: string[];
+  ongoing_threads: UserMemoryDigestThread[];
+  stable_preferences: string[];
+  updated_at?: number;
+}
+
 export interface ProfileUpdateResult {
   ok: boolean;
   updated: boolean;
@@ -65,12 +78,28 @@ export interface DeepSeekReplyRequest {
   personality: string;
   targetMessage?: string;
   targetSender?: string;
-  profileContext?: string;
+  targetTrip?: string;
+  room_id?: string;
+  memory_prompt_min_importance?: number;
+  memory_prompt_limit?: number;
+  memory_store_min_importance?: number;
+  memory_store_enabled?: boolean;
+  reply_pipeline_mode?: 'single' | 'two_pass';
+}
+
+export interface ReplyMemoryItem {
+  text: string;
+  importance: number;
+  tags: string[];
+}
+
+export interface ReplyMemoryPayload {
+  items: ReplyMemoryItem[];
 }
 
 export interface DeepSeekReplySuccess {
-  ok: true;
-  text: string;
+  reply: string;
+  memory: ReplyMemoryPayload;
 }
 
 export interface ApiErrorResponse {
@@ -103,4 +132,5 @@ export interface ProfileFromMessageRequest {
 export interface ProfileByTripResponse {
   ok: boolean;
   profile_json: UserProfile;
+  memory_digest_json?: UserMemoryDigest;
 }

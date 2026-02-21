@@ -11,8 +11,9 @@
 import express from 'express';
 import cors from 'cors';
 import { SERVER_CONFIG } from './config.mjs';
-import { cleanupTtlAndVectors, getDbInfo } from './db/index.mjs';
+import { cleanupTtlAndVectors, getDbInfo, initDb } from './db/index.mjs';
 import { registerRoutes } from './routes/index.mjs';
+import { getReplyLogPath } from './services/replyLogger.mjs';
 
 /**
  * [Function]
@@ -21,6 +22,8 @@ import { registerRoutes } from './routes/index.mjs';
  * Output: void
  */
 function bootstrapServer() {
+  initDb();
+
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '1mb' }));
@@ -31,6 +34,7 @@ function bootstrapServer() {
   const dbInfo = getDbInfo();
   console.log(`[db] startup cleanup: memories=${startupCleanup.removedMemories}, vectors=${startupCleanup.removedVectors}`);
   console.log(`[db] sqlite path: ${dbInfo.dbPath}`);
+  console.log(`[reply-log] path: ${getReplyLogPath()}`);
 
   app.listen(SERVER_CONFIG.apiPort, () => {
     console.log(`[api] listening on http://localhost:${SERVER_CONFIG.apiPort}`);

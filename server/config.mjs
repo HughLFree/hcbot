@@ -25,6 +25,23 @@ function parseNumber(value, fallback) {
 
 /**
  * [Function]
+ * Name: parseBoolean
+ * Purpose: 读取布尔型配置并提供兜底值。
+ * Input: value/fallback
+ * Output: boolean
+ */
+function parseBoolean(value, fallback) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return fallback;
+
+  const normalized = value.trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+  return fallback;
+}
+
+/**
+ * [Function]
  * Name: readJsonObject
  * Purpose: 读取 JSON 文件并返回对象；读取失败时返回 null。
  * Input: filePath
@@ -112,6 +129,15 @@ function normalizeDefaults(rawDefaults, providers) {
   if (typeof safeDefaults.personality === 'string' && safeDefaults.personality.trim().length > 0) {
     defaults.personality = safeDefaults.personality.trim();
   }
+  if (Array.isArray(safeDefaults.personality)) {
+    const lines = safeDefaults.personality
+      .filter((line) => typeof line === 'string')
+      .map((line) => line.trimEnd());
+    const merged = lines.join('\n').trim();
+    if (merged.length > 0) {
+      defaults.personality = merged;
+    }
+  }
   if (safeDefaults.replyMode === 'mention' || safeDefaults.replyMode === 'all') {
     defaults.replyMode = safeDefaults.replyMode;
   }
@@ -161,7 +187,14 @@ export const SERVER_CONFIG = {
   memory: {
     minImportance: 1,
     maxImportance: 10,
-    defaultImportance: 5,
+    defaultImportance: 3,
+    promptMinImportance: Math.max(1, Math.min(10, Math.floor(parseNumber(process.env.MEMORY_PROMPT_MIN_IMPORTANCE, 1)))),
+    promptMaxItems: Math.max(1, Math.min(30, Math.floor(parseNumber(process.env.MEMORY_PROMPT_MAX_ITEMS, 10)))),
+    storeMinImportance: Math.max(1, Math.min(10, Math.floor(parseNumber(process.env.MEMORY_STORE_MIN_IMPORTANCE, 1)))),
+    storeEnabled: parseBoolean(process.env.MEMORY_STORE_ENABLED, true),
+    digestSourceMinImportance: Math.max(1, Math.min(10, Math.floor(parseNumber(process.env.MEMORY_DIGEST_SOURCE_MIN_IMPORTANCE, 2)))),
+    digestSourceMaxItemsPerUser: Math.max(1, Math.min(200, Math.floor(parseNumber(process.env.MEMORY_DIGEST_SOURCE_MAX_ITEMS_PER_USER, 60)))),
+    digestPruneBelowImportance: Math.max(1, Math.min(10, Math.floor(parseNumber(process.env.MEMORY_DIGEST_PRUNE_BELOW_IMPORTANCE, 3)))),
 
     /**
      * 记忆 TTL 默认值（单位：天）
@@ -177,7 +210,13 @@ export const SERVER_CONFIG = {
     // setprofile 内容最大长度（超出则拒绝处理）
     maxInputChars: 200,
     // DeepSeek 模型名
-    model: 'deepseek-chat',
+    model: 'deepseek-chat', //deepseek-reasoner
+  },
+
+  reply: {
+    // single: 单次模型调用（兼容旧行为）
+    // two_pass: 两次模型调用（reply 与 memory 分开）
+    pipelineMode: process.env.REPLY_PIPELINE_MODE === 'two_pass' ? 'two_pass' : 'single',
   },
 
   // 前端启动时读取的单一配置源（后端为准）

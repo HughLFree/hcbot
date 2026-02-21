@@ -5,17 +5,8 @@
  * - DeepSeek 结构化抽取
  * - 画像合并与字段清洗规则
  */
-import { OpenAI } from 'openai';
 import { SERVER_CONFIG } from '../config.mjs';
-
-const DEEPSEEK_API_URL = 'https://api.deepseek.com';
-
-const deepseekClient = process.env.DEEPSEEK_API_KEY
-  ? new OpenAI({
-      baseURL: DEEPSEEK_API_URL,
-      apiKey: process.env.DEEPSEEK_API_KEY,
-    })
-  : null;
+import { getDeepSeekClient } from './llm/client.mjs';
 
 function normalizeNullableString(value) {
   if (value === null || value === undefined) return null;
@@ -127,9 +118,7 @@ export function mergeProfile(oldProfile, newProfile, displayName, updatedAt) {
  * @throws 当 key 缺失、JSON 非法或调用失败时抛错
  */
 export async function extractProfileWithDeepSeek(content) {
-  if (!deepseekClient) {
-    throw new Error('DEEPSEEK_API_KEY is missing on API server');
-  }
+  const deepseekClient = getDeepSeekClient();
 
   const systemPrompt = [
     '你是一个严格的JSON生成器。',

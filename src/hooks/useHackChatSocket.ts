@@ -3,20 +3,14 @@
  * Module: useHackChatSocket
  * Layer: Frontend Hook
  * Responsibility:
- * - 管理 hack.chat WebSocket 生命周期
- * - 分发消息事件与在线用户状态
- * - 将“是否需要回复”交给上层回调处理
+ * - 组合连接层、协议分发层、回复策略层
+ * - 管理 UI 状态（连接状态/消息/在线用户）
  * =========================
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { BotConfig, ChatMessage, ConnectionStatus, HCIncomingMessage, HCOutgoingMessage } from '../types';
-
-interface ReplyInput {
-  history: ChatMessage[];
-  triggerMessage: string;
-  sender: string;
-  senderTrip?: string;
-}
+import { BotConfig, ChatMessage, ConnectionStatus, HCIncomingMessage } from '../types';
+import { createHackChatConnection, HackChatConnection } from './socket/connectionLayer';
+import { dispatchProtocolPacket, ReplyInput } from './socket/protocolDispatcher';
 
 interface UseHackChatSocketOptions {
   config: BotConfig;
@@ -46,10 +40,10 @@ export const useHackChatSocket = ({
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
 
-  const wsRef = useRef<WebSocket | null>(null);
+  const connectionRef = useRef<HackChatConnection | null>(null);
+  const packetHandlerRef = useRef<(packet: HCIncomingMessage) => void>(() => {});
   const messagesRef = useRef<ChatMessage[]>([]);
   const configRef = useRef<BotConfig>(config);
-  const pingIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
     configRef.current = config;
@@ -76,191 +70,82 @@ export const useHackChatSocket = ({
   }, []);
 
   /**
-   * [Function]
-   * Name: sendPacket
-   * Purpose: 统一发送 WebSocket 数据包，内部负责连接状态判断。
+   * 读取最新配置，供连接层在非 React 上下文中安全访问。
    */
-  const sendPacket = useCallback((packet: HCOutgoingMessage) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(packet));
-    }
+  const getConfig = useCallback(() => configRef.current, []);
+
+  /**
+   * 统一封装发送聊天消息动作。
+   */
+  const sendChatMessage = useCallback((text: string) => {
+    connectionRef.current?.sendChatMessage(text);
   }, []);
 
   /**
    * [Function]
+   * Name: handlePacket
+   * Purpose: 协议分发层入口，根据 cmd 更新状态并触发可选回复回调。
+   */
+  const handlePacket = useCallback((packet: HCIncomingMessage) => {
+    const currentConfig = configRef.current;
+    dispatchProtocolPacket({
+      packet,
+      botName: currentConfig.botName,
+      replyMode: currentConfig.replyMode,
+      messagesSnapshot: messagesRef.current,
+      addMessage,
+      replaceOnlineUsers: (users) => setOnlineUsers(users),
+      appendOnlineUser: (nick) => setOnlineUsers((prev) => [...prev, nick]),
+      removeOnlineUser: (nick) => setOnlineUsers((prev) => prev.filter((name) => name !== nick)),
+      onIncomingMessage,
+      onReplyRequested,
+      sendChatMessage,
+    });
+  }, [addMessage, onIncomingMessage, onReplyRequested, sendChatMessage]);
+
+  useEffect(() => {
+    packetHandlerRef.current = handlePacket;
+  }, [handlePacket]);
+
+  /**
+   * 组件生命周期内创建一次连接层实例，并在卸载时释放。
+   */
+  useEffect(() => {
+    const connection = createHackChatConnection({
+      getConfig,
+      onStatusChange: setStatus,
+      onSystemMessage: addMessage,
+      onPacket: (packet) => packetHandlerRef.current(packet),
+    });
+    connectionRef.current = connection;
+
+    return () => {
+      connection.disconnect();
+      if (connectionRef.current === connection) {
+        connectionRef.current = null;
+      }
+    };
+  }, [addMessage, getConfig]);
+
+  /**
+   * [Function]
    * Name: disconnect
-   * Purpose: 断开连接并回收资源（socket + ping timer）。
+   * Purpose: 断开连接并回收连接层资源。
    */
   const disconnect = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    if (pingIntervalRef.current) {
-      clearInterval(pingIntervalRef.current);
-      pingIntervalRef.current = null;
-    }
-    setStatus('disconnected');
+    connectionRef.current?.disconnect();
   }, []);
 
   /**
    * [Function]
    * Name: connect
-   * Purpose:
-   * - 建立与 hack.chat 的连接
-   * - 绑定事件处理（chat/info/warn/online）
-   * - 在满足策略时触发 onReplyRequested
+   * Purpose: 触发连接层建立连接，连接前清空当前消息窗口。
    */
   const connect = useCallback(() => {
     if (status === 'connected' || status === 'connecting') return;
-
-    setStatus('connecting');
     clearMessages();
-
-    const ws = new WebSocket('wss://hack.chat/chat-ws');
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setStatus('connected');
-      addMessage({
-        time: Date.now(),
-        nick: 'System',
-        text: 'Connected to wss://hack.chat/chat-ws',
-        type: 'info',
-      });
-
-      sendPacket({
-        cmd: 'join',
-        channel: configRef.current.channel,
-        nick: configRef.current.botName,
-        pass: configRef.current.password,
-      });
-
-      pingIntervalRef.current = window.setInterval(() => {
-        sendPacket({ cmd: 'ping' });
-      }, 60000);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data: HCIncomingMessage = JSON.parse(event.data);
-
-        switch (data.cmd) {
-          case 'chat':
-            if (data.nick && data.text) {
-              const newMessage: ChatMessage = {
-                time: data.time || Date.now(),
-                nick: data.nick,
-                text: data.text,
-                trip: data.trip,
-                type: 'message',
-              };
-              addMessage(newMessage);
-
-              if (data.nick === configRef.current.botName) return;
-              onIncomingMessage?.(newMessage);
-
-              const lowerText = data.text.toLowerCase();
-              const lowerBotName = configRef.current.botName.toLowerCase();
-              const isMentioned =lowerText.includes(lowerBotName) ;
-
-              const shouldReply = configRef.current.replyMode === 'mention'
-                ? isMentioned
-                : (isMentioned || Math.random() < 0.1);
-
-              if (shouldReply && onReplyRequested) {
-                void onReplyRequested({
-                  history: messagesRef.current,
-                  triggerMessage: data.text,
-                  sender: data.nick,
-                  senderTrip: data.trip,
-                }).then((response) => {
-                  if (!response) return;
-                  sendPacket({ cmd: 'chat', text: response });
-                });
-              }
-            }
-            break;
-
-          case 'info':
-            if (data.text) {
-              addMessage({
-                time: data.time || Date.now(),
-                nick: 'Server',
-                text: data.text,
-                type: 'info',
-              });
-            }
-            break;
-
-          case 'warn':
-            if (data.text) {
-              addMessage({
-                time: Date.now(),
-                nick: 'Server',
-                text: data.text,
-                type: 'warning',
-              });
-            }
-            break;
-
-          case 'onlineSet':
-            if (Array.isArray(data.nicks)) {
-              setOnlineUsers(data.nicks);
-            }
-            break;
-
-          case 'onlineAdd':
-            if (data.nick) {
-              setOnlineUsers((prev) => [...prev, data.nick!]);
-              addMessage({
-                time: Date.now(),
-                nick: '*',
-                text: `${data.nick} joined`,
-                type: 'info',
-              });
-            }
-            break;
-
-          case 'onlineRemove':
-            if (data.nick) {
-              setOnlineUsers((prev) => prev.filter((n) => n !== data.nick));
-              addMessage({
-                time: Date.now(),
-                nick: '*',
-                text: `${data.nick} left`,
-                type: 'info',
-              });
-            }
-            break;
-        }
-      } catch (error) {
-        console.error('Failed to parse WS message', error);
-      }
-    };
-
-    ws.onclose = () => {
-      setStatus('disconnected');
-      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
-      addMessage({
-        time: Date.now(),
-        nick: 'System',
-        text: 'Connection closed.',
-        type: 'warning',
-      });
-    };
-
-    ws.onerror = (err) => {
-      console.error(err);
-      setStatus('error');
-      addMessage({
-        time: Date.now(),
-        nick: 'System',
-        text: 'WebSocket encountered an error.',
-        type: 'warning',
-      });
-    };
-  }, [addMessage, clearMessages, onIncomingMessage, onReplyRequested, sendPacket, status]);
+    connectionRef.current?.connect();
+  }, [clearMessages, status]);
 
   // 页面卸载时主动断开，减少幽灵连接
   useEffect(() => {

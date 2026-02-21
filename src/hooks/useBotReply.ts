@@ -16,7 +16,6 @@ import { generateDeepSeekReply } from '../api/replyClient';
 interface UseBotReplyOptions {
   getConfig: () => BotConfig;
   getProviders: () => ModelProviderOption[];
-  fetchProfileContextByTrip: (tripCode?: string) => Promise<string>;
 }
 
 interface ReplyInput {
@@ -33,11 +32,10 @@ interface ReplyInput {
  * Input:
  * - getConfig: 获取最新配置
  * - getProviders: 获取当前 provider 列表
- * - fetchProfileContextByTrip: 获取画像上下文
  * Output:
  * - { generateReply }
  */
-export const useBotReply = ({ getConfig, getProviders, fetchProfileContextByTrip }: UseBotReplyOptions) => {
+export const useBotReply = ({ getConfig, getProviders }: UseBotReplyOptions) => {
   /**
    * [Function]
    * Name: generateReply
@@ -57,21 +55,20 @@ export const useBotReply = ({ getConfig, getProviders, fetchProfileContextByTrip
       return '';
     }
 
-    const profileContext = await fetchProfileContextByTrip(senderTrip);
-
     if (currentConfig.provider === 'deepseek') {
       return generateDeepSeekReply(
         history,
         currentConfig.personality,
         triggerMessage,
         sender,
-        profileContext
+        senderTrip,
+        currentConfig.channel
       );
     }
 
     console.error(`Provider "${currentConfig.provider}" is not implemented yet.`);
     return '';
-  }, [fetchProfileContextByTrip, getConfig, getProviders]);
+  }, [getConfig, getProviders]);
 
   return { generateReply };
 };
